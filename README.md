@@ -36,14 +36,14 @@ you can omit `APP_LISTEN` and `APP_CONFIG` environment variable, the default val
 ### Access the CGI script
 
 ```sh
-curl http://3009b87324da39e76f60a85fe030b2f8@localhost:8080/cgi/test1
-curl http://9cd7dd0873172eda537bafe618ec72b4@localhost:8080/cgi/test2
+curl http://3009b87324da39e76f60a85fe030b2f8@localhost:8080/test1
+curl http://9cd7dd0873172eda537bafe618ec72b4@localhost:8080/test2
 ```
 
 ### Reload configuration
 
 ```sh
-curl http://3009b87324da39e76f60a85fe030b2f8@localhost:8080/reload
+kill -s HUP "$CGI_PROXY_PID"
 ```
 
 ## Example usecase

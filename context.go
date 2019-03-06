@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/payfazz/go-router/method"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -18,6 +18,48 @@ type ctx struct {
 	infoLog, errLog *log.Logger
 	key             map[string]struct{}
 	rootHandler     map[string]http.HandlerFunc
+}
+
+func newContext(infoLog, errLog *log.Logger) *ctx {
+	h := &ctx{
+		infoLog:     infoLog,
+		errLog:      errLog,
+		key:         make(map[string]struct{}),
+		rootHandler: make(map[string]http.HandlerFunc),
+	}
+
+	if err := h.reload(); err != nil {
+		h.errLog.Println("cannot load initial config config")
+	}
+
+	return h
+}
+
+func (h *ctx) compileHandler() http.HandlerFunc {
+	return method.H{
+		http.MethodGet:  h.cgiHandler,
+		http.MethodPost: h.cgiHandler,
+	}.C()
+}
+
+func (h *ctx) cgiHandler(w http.ResponseWriter, r *http.Request) {
+	if !h.allowed(r) {
+		h.err401(w, r)
+		return
+	}
+
+	path := strings.TrimSuffix(r.URL.EscapedPath(), "/")
+
+	h.mu.RLock()
+	handler := h.rootHandler[path]
+	h.mu.RUnlock()
+
+	if handler == nil {
+		h.err404(w, r)
+		return
+	}
+
+	handler(w, r)
 }
 
 func (h *ctx) allowed(r *http.Request) bool {
@@ -29,24 +71,13 @@ func (h *ctx) allowed(r *http.Request) bool {
 		return true
 	}
 
-	auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
-
-	if len(auth) != 2 {
-		return false
-	}
-	if strings.ToLower(auth[0]) != "basic" {
-		return false
-	}
-
-	payload, _ := base64.StdEncoding.DecodeString(auth[1])
-	pair := strings.SplitN(string(payload), ":", 2)
-
-	if len(pair) != 2 {
+	user, _, ok := r.BasicAuth()
+	if !ok {
 		return false
 	}
 
 	h.mu.RLock()
-	_, ok := h.key[pair[0]]
+	_, ok = h.key[user]
 	h.mu.RUnlock()
 
 	return ok
@@ -123,7 +154,6 @@ func (h *ctx) compileCGIHandler(args []string) http.HandlerFunc {
 		mu.Lock()
 		defer mu.Unlock()
 
-		h.infoLog.Printf("Executing CGI: %#v", args)
 		handler.ServeHTTP(w, r)
 	}
 }
