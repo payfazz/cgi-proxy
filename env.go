@@ -3,7 +3,7 @@ package main
 import "os"
 
 var defEnv = map[string]string{
-	"APP_LISTEN": ":8080",
+	"APP_LISTEN": "tcp::8080",
 	"APP_CONFIG": "./config.yaml",
 }
 

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -22,6 +25,19 @@ func main() {
 	}()
 
 	listen := getEnv("APP_LISTEN")
+	listenParts := strings.SplitN(listen, ":", 2)
+	if len(listenParts) != 2 {
+		panic(fmt.Errorf("cannot parse APP_LISTEN: %s", listen))
+	}
 	infoLog.Printf("listen on %s, pid=%d\n", listen, os.Getpid())
-	panic(http.ListenAndServe(listen, ctx.compileHandler()))
+	handler := ctx.compileHandler()
+	if listenParts[0] == "tcp" {
+		panic(http.ListenAndServe(listenParts[1], handler))
+	} else {
+		listener, err := net.Listen(listenParts[0], listenParts[1])
+		if err != nil {
+			panic(err)
+		}
+		panic((&http.Server{Handler: handler}).Serve(listener))
+	}
 }

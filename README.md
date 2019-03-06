@@ -28,7 +28,7 @@ entry:
 then run the server
 
 ```sh
-APP_LISTEN=:8080 APP_CONFIG=./config.yaml ./cgi-proxy
+APP_LISTEN=tcp::8080 APP_CONFIG=./config.yaml ./cgi-proxy
 ```
 
 you can omit `APP_LISTEN` and `APP_CONFIG` environment variable, the default value is `:8080` and `./config.yaml`.
