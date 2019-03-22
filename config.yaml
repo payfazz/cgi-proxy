@@ -4,6 +4,6 @@ static_key:
 
 entry:
 - path: /test1
-  cmd: ["./cgify.sh", "./test-script.sh", "a", "b"]
+  cmd: ["./extras/cgify.sh", "./test-script.sh", "a", "b"]
 - path: /test2
-  cmd: ["./cgify.sh", "./test-script.sh", "1", "2"]
+  cmd: ["./extras/cgify.sh", "./test-script.sh", "1", "2"]

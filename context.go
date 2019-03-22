@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/payfazz/go-router/method"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 type ctx struct {
@@ -50,9 +50,11 @@ func (h *ctx) cgiHandler(w http.ResponseWriter, r *http.Request) {
 
 	path := strings.TrimSuffix(r.URL.EscapedPath(), "/")
 
-	h.mu.RLock()
-	handler := h.rootHandler[path]
-	h.mu.RUnlock()
+	handler := func() http.HandlerFunc {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return h.rootHandler[path]
+	}()
 
 	if handler == nil {
 		h.err404(w, r)
@@ -63,9 +65,11 @@ func (h *ctx) cgiHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ctx) allowed(r *http.Request) bool {
-	h.mu.RLock()
-	bypass := len(h.key) == 0
-	h.mu.RUnlock()
+	bypass := func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.key) == 0
+	}()
 
 	if bypass {
 		return true
@@ -76,11 +80,12 @@ func (h *ctx) allowed(r *http.Request) bool {
 		return false
 	}
 
-	h.mu.RLock()
-	_, ok = h.key[user]
-	h.mu.RUnlock()
-
-	return ok
+	return func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		_, ok = h.key[user]
+		return ok
+	}()
 }
 
 func (h *ctx) reload() error {
@@ -96,8 +101,9 @@ func (h *ctx) reload() error {
 	var conf struct {
 		AuthKeys []string `yaml:"static_key"`
 		Entry    []struct {
-			Path string   `yaml:"path"`
-			Cmd  []string `yaml:"cmd"`
+			Path          string   `yaml:"path"`
+			Cmd           []string `yaml:"cmd"`
+			AllowParallel bool     `yaml:"allow_parallel"`
 		} `yaml:"entry"`
 	}
 
@@ -127,7 +133,7 @@ func (h *ctx) reload() error {
 			h.errLog.Println(err)
 			return err
 		}
-		newRootHandler[path] = h.compileCGIHandler(item.Cmd)
+		newRootHandler[path] = h.compileCGIHandler(item.Cmd, item.AllowParallel)
 	}
 
 	h.key = newKey
@@ -141,7 +147,7 @@ func (h *ctx) reload() error {
 	return nil
 }
 
-func (h *ctx) compileCGIHandler(args []string) http.HandlerFunc {
+func (h *ctx) compileCGIHandler(args []string, allowParallel bool) http.HandlerFunc {
 	var mu sync.Mutex
 	handler := &cgi.Handler{
 		Path:   args[0],
@@ -150,9 +156,11 @@ func (h *ctx) compileCGIHandler(args []string) http.HandlerFunc {
 		Stderr: ioutil.Discard,
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		// avoid parallel execution
-		mu.Lock()
-		defer mu.Unlock()
+		if !allowParallel {
+			// avoid parallel execution
+			mu.Lock()
+			defer mu.Unlock()
+		}
 
 		handler.ServeHTTP(w, r)
 	}

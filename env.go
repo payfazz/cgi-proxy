@@ -2,15 +2,24 @@ package main
 
 import "os"
 
-var defEnv = map[string]string{
+var defConfig = map[string]string{
 	"APP_LISTEN": "tcp::8080",
 	"APP_CONFIG": "./config.yaml",
 }
 
-func getEnv(key string) string {
-	ret := os.Getenv(key)
-	if ret == "" {
-		ret = defEnv[key]
+var derivedConfig = map[string]string{}
+
+func init() {
+	for key, value := range defConfig {
+		realValue := os.Getenv(key)
+		if realValue == "" {
+			realValue = value
+		}
+		derivedConfig[key] = realValue
+		os.Unsetenv(key)
 	}
-	return ret
+}
+
+func getEnv(key string) string {
+	return derivedConfig[key]
 }

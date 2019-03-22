@@ -12,8 +12,8 @@ import (
 )
 
 func main() {
-	infoLog := log.New(os.Stdout, "INF: ", log.LstdFlags|log.Lmicroseconds|log.LUTC|log.Lshortfile)
-	errLog := log.New(os.Stderr, "ERR: ", log.LstdFlags|log.Lmicroseconds|log.LUTC|log.Llongfile)
+	infoLog := log.New(os.Stdout, "INF: ", log.LstdFlags)
+	errLog := log.New(os.Stderr, "ERR: ", log.LstdFlags|log.Lshortfile)
 	ctx := newContext(infoLog, errLog)
 
 	go func() {
@@ -30,7 +30,9 @@ func main() {
 		panic(fmt.Errorf("cannot parse APP_LISTEN: %s", listen))
 	}
 	infoLog.Printf("listen on %s, pid=%d\n", listen, os.Getpid())
+
 	handler := ctx.compileHandler()
+
 	if listenParts[0] == "tcp" {
 		panic(http.ListenAndServe(listenParts[1], handler))
 	} else {

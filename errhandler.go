@@ -7,7 +7,7 @@ import (
 )
 
 func (h *ctx) err401(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("WWW-Authenticate", `Basic realm="please enter valid credential"`)
+	w.Header().Set("WWW-Authenticate", `Basic realm="cgi-proxy credential"`)
 	defhandler.StatusUnauthorized(w, r)
 }
 
