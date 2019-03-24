@@ -9,159 +9,163 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/payfazz/go-middleware"
+	"github.com/payfazz/go-router/defhandler"
 	"github.com/payfazz/go-router/method"
-	"gopkg.in/yaml.v2"
+	"github.com/payfazz/go-router/path"
+	"github.com/payfazz/go-router/segment"
+
+	"github.com/payfazz/cgi-proxy/internal/config"
 )
 
 type ctx struct {
-	mu              sync.RWMutex
-	infoLog, errLog *log.Logger
-	key             map[string]struct{}
-	rootHandler     map[string]http.HandlerFunc
+	infoLog    *log.Logger
+	errLog     *log.Logger
+	configPath string
+	handler    struct {
+		sync.RWMutex
+		http.HandlerFunc
+	}
 }
 
-func newContext(infoLog, errLog *log.Logger) *ctx {
+func newContext(infoLog *log.Logger, errLog *log.Logger, configPath string) *ctx {
 	h := &ctx{
-		infoLog:     infoLog,
-		errLog:      errLog,
-		key:         make(map[string]struct{}),
-		rootHandler: make(map[string]http.HandlerFunc),
+		infoLog:    infoLog,
+		errLog:     errLog,
+		configPath: configPath,
 	}
+	h.handler.HandlerFunc = defhandler.StatusNotFound
 
-	if err := h.reload(); err != nil {
-		h.errLog.Println("cannot load initial config config")
-	}
+	h.reload()
 
 	return h
 }
 
-func (h *ctx) compileHandler() http.HandlerFunc {
-	return method.H{
-		http.MethodGet:  h.cgiHandler,
-		http.MethodPost: h.cgiHandler,
-	}.C()
+func (h *ctx) compileRootHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		func() http.HandlerFunc {
+			h.handler.RLock()
+			defer h.handler.RUnlock()
+			return h.handler.HandlerFunc
+		}()(w, r)
+	}
 }
 
-func (h *ctx) cgiHandler(w http.ResponseWriter, r *http.Request) {
-	if !h.allowed(r) {
-		h.err401(w, r)
-		return
+func (h *ctx) reload() {
+	if err := func() error {
+
+		conf, err := config.Parse(h.configPath)
+		if err != nil {
+			return err
+		}
+
+		authMiddleware := h.createAuthMiddleware(conf.AuthKeys)
+
+		rootHandler, err := h.createRootRoutingTable(conf.Entry)
+		if err != nil {
+			return err
+		}
+
+		rootHandler = middleware.Compile(
+			authMiddleware,
+			method.Must("GET", "POST"),
+			rootHandler,
+		)
+
+		func() {
+			h.handler.Lock()
+			defer h.handler.Unlock()
+			h.handler.HandlerFunc = rootHandler
+		}()
+
+		return nil
+
+	}(); err != nil {
+		h.errLog.Println("cannot reload config:", err.Error())
+	} else {
+		h.infoLog.Println("config reloaded !!")
 	}
-
-	path := strings.TrimSuffix(r.URL.EscapedPath(), "/")
-
-	handler := func() http.HandlerFunc {
-		h.mu.RLock()
-		defer h.mu.RUnlock()
-		return h.rootHandler[path]
-	}()
-
-	if handler == nil {
-		h.err404(w, r)
-		return
-	}
-
-	handler(w, r)
 }
 
-func (h *ctx) allowed(r *http.Request) bool {
-	bypass := func() bool {
-		h.mu.RLock()
-		defer h.mu.RUnlock()
-		return len(h.key) == 0
-	}()
-
-	if bypass {
-		return true
+func (h *ctx) createAuthMiddleware(keys []string) func(http.HandlerFunc) http.HandlerFunc {
+	if len(keys) == 0 {
+		h.infoLog.Println("warning: static key is empty, anyone can access the service now")
+		return middleware.Nop
 	}
 
-	user, _, ok := r.BasicAuth()
-	if !ok {
-		return false
+	keyMap := make(map[string]struct{})
+	for _, item := range keys {
+		keyMap[item] = struct{}{}
 	}
 
-	return func() bool {
-		h.mu.RLock()
-		defer h.mu.RUnlock()
-		_, ok = h.key[user]
-		return ok
-	}()
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			user, _, _ := r.BasicAuth()
+			if _, ok := keyMap[user]; ok {
+				next(w, r)
+				return
+			}
+
+			h.err401(w, r)
+		}
+	}
 }
 
-func (h *ctx) reload() error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	confBytes, err := ioutil.ReadFile(getEnv("APP_CONFIG"))
-	if err != nil {
-		h.errLog.Println(err)
-		return err
-	}
-
-	var conf struct {
-		AuthKeys []string `yaml:"static_key"`
-		Entry    []struct {
-			Path          string   `yaml:"path"`
-			Cmd           []string `yaml:"cmd"`
-			AllowParallel bool     `yaml:"allow_parallel"`
-		} `yaml:"entry"`
-	}
-
-	if err := yaml.Unmarshal(confBytes, &conf); err != nil {
-		h.errLog.Println(err)
-		return err
-	}
-
-	newKey := make(map[string]struct{})
-	for _, item := range conf.AuthKeys {
-		newKey[item] = struct{}{}
-	}
-
-	newRootHandler := make(map[string]http.HandlerFunc)
-	for _, item := range conf.Entry {
+func (h *ctx) createRootRoutingTable(entries []config.Entry) (http.HandlerFunc, error) {
+	ret := path.H{}
+	for _, item := range entries {
 		path := item.Path
 		if path != "/" {
 			path = strings.TrimSuffix(path, "/")
 		}
 		if path == "" {
-			err := fmt.Errorf("parse error: path cannot be empty")
-			h.errLog.Println(err)
-			return err
+			return nil, fmt.Errorf("path cannot be empty")
 		}
 		if len(item.Cmd) == 0 {
-			err := fmt.Errorf("parse error: cmd cannot be empty")
-			h.errLog.Println(err)
-			return err
+			return nil, fmt.Errorf("cmd cannot be empty")
 		}
-		newRootHandler[path] = h.compileCGIHandler(item.Cmd, item.AllowParallel)
+
+		ret[path] = h.compileCGIHandler(item.Cmd, item.AllowParallel, item.AllowSubPath)
 	}
-
-	h.key = newKey
-	h.rootHandler = newRootHandler
-
-	h.infoLog.Println("config reloaded !!")
-	if len(h.key) == 0 {
-		h.infoLog.Println("warning: static key is empty, anyone can access the service now")
-	}
-
-	return nil
+	return ret.C(), nil
 }
 
-func (h *ctx) compileCGIHandler(args []string, allowParallel bool) http.HandlerFunc {
+func (h *ctx) compileCGIHandler(args []string, allowParallel bool, allowSubPath bool) http.HandlerFunc {
 	var mu sync.Mutex
+
 	handler := &cgi.Handler{
 		Path:   args[0],
 		Args:   args[1:],
 		Logger: h.errLog,
 		Stderr: ioutil.Discard,
 	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !allowParallel {
-			// avoid parallel execution
-			mu.Lock()
-			defer mu.Unlock()
-		}
 
-		handler.ServeHTTP(w, r)
+	subPathMiddlware := segment.MustEnd
+	if allowSubPath {
+		subPathMiddlware = middleware.Nop
 	}
+
+	parallelMiddleware := middleware.Nop
+	if !allowParallel {
+		parallelMiddleware = func(next http.HandlerFunc) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				if !allowParallel {
+					mu.Lock()
+					defer mu.Unlock()
+				}
+				next(w, r)
+			}
+		}
+	}
+
+	return middleware.Compile(
+		subPathMiddlware,
+		parallelMiddleware,
+		handler,
+	)
+}
+
+func (h *ctx) err401(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="cgi-proxy credential"`)
+	defhandler.StatusUnauthorized(w, r)
 }

@@ -3,7 +3,6 @@ Description=cgi-proxy service
 
 [Service]
 EnvironmentFile=-/opt/cgi-proxy/cgi-proxy.env
-ExecStartPre=/bin/sh -c 'rm -rf "$(echo $APP_LISTEN | sed "s/unix://")"'
 ExecStart=/opt/cgi-proxy/cgi-proxy
 ExecReload=/bin/kill -s HUP $MAINPID
 
