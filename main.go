@@ -11,18 +11,19 @@ import (
 	"syscall"
 
 	"github.com/payfazz/cgi-proxy/internal/env"
+	"github.com/payfazz/cgi-proxy/internal/handler"
 )
 
 func main() {
 	infoLog := log.New(os.Stdout, "INF: ", log.LstdFlags)
 	errLog := log.New(os.Stderr, "ERR: ", log.LstdFlags)
 
-	ctx := newContext(infoLog, errLog, env.Get("APP_CONFIG"))
+	h := handler.New(infoLog, errLog, env.Get("APP_CONFIG"))
 	go func() {
 		signalChan := make(chan os.Signal, 1)
 		signal.Notify(signalChan, syscall.SIGHUP)
 		for range signalChan {
-			ctx.reload()
+			h.Reload()
 		}
 	}()
 
@@ -33,7 +34,7 @@ func main() {
 	}
 	infoLog.Printf("listen on %s, pid=%d\n", listen, os.Getpid())
 
-	handler := ctx.compileRootHandler()
+	handler := h.Compile()
 
 	if listenParts[0] == "tcp" {
 		panic(http.ListenAndServe(listenParts[1], handler))

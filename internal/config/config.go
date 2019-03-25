@@ -12,6 +12,7 @@ type Entry struct {
 	Cmd           []string `yaml:"cmd"`
 	AllowParallel bool     `yaml:"allow_parallel"`
 	AllowSubPath  bool     `yaml:"allow_sub_path"`
+	HijackTCP     bool     `yaml:"hijack_tcp"`
 }
 
 // Config .
