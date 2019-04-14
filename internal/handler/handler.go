@@ -135,17 +135,18 @@ func (h *Handler) createRootRoutingTable(entries []config.Entry) (http.HandlerFu
 			return nil, fmt.Errorf("cmd cannot be empty")
 		}
 
-		ret[path] = h.createCGIHandler(item.Cmd, item.AllowParallel, item.AllowSubPath, item.HijackTCP)
+		ret[path] = h.createCGIHandler(path, item.Cmd, item.AllowParallel, item.AllowSubPath, item.HijackTCP)
 	}
 	return ret.C(), nil
 }
 
-func (h *Handler) createCGIHandler(cmds []string, allowParallel bool, allowSubPath bool, hijack bool) http.HandlerFunc {
+func (h *Handler) createCGIHandler(root string, cmds []string, allowParallel bool, allowSubPath bool, hijack bool) http.HandlerFunc {
 	var mu sync.Mutex
 	var handler http.HandlerFunc
 
 	if !hijack {
 		handler = (&cgi.Handler{
+			Root:   root,
 			Path:   cmds[0],
 			Args:   cmds[1:],
 			Logger: h.errLog,
