@@ -7,6 +7,7 @@ entry:
   cmd: ["./extras/cgify.sh", "./test-script.sh", "a", "b"]
 - path: /test2
   cmd: ["./extras/cgify.sh", "./test-script.sh", "1", "2"]
+  allow_sub_path: true
 - path: /test3
   cmd: ["./extras/test-script.sh", "1", "2"]
   allow_parallel: true
