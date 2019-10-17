@@ -1,9 +1,4 @@
-static_key:
-- 3009b87324da39e76f60a85fe030b2f8
-- 9cd7dd0873172eda537bafe618ec72b4
-
 entry:
 - path: /test1
-  cmd: ["/opt/cgi-proxy/cgify.sh", "/opt/cgi-proxy/test-script.sh", "a", "b"]
-- path: /test2
-  cmd: ["/opt/cgi-proxy/cgify.sh", "/opt/cgi-proxy/test-script.sh", "1", "2"]
+  allow_sub_path: true
+  cmd: ["./cgify.sh", "./test-script.sh", "a", "b"]
